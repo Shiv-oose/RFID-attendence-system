@@ -1,0 +1,99 @@
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <SPI.h>
+#include <MFRC522.h>
+#include <time.h>
+
+#define RST_PIN 22
+#define SS_PIN 21
+
+MFRC522 rfid(SS_PIN, RST_PIN);
+
+const char* ssid = "WIFI name";
+const char* password = "password";
+const char* scriptUrl = "paste google sheet URL";
+
+// NTP Time Configuration
+const char* ntpServer = "pool.ntp.org";
+const long gmtOffset_sec = 19800;  // IST (GMT+5:30)
+const int daylightOffset_sec = 0;
+
+// Map UID to student names
+String getStudentName(String uid) {
+  if (uid == "giefh8") return "SHIVAM";
+  if (uid == "vjsfdgzk") return "SADAB";
+  if (uid == "11223344") return "Alex Roy";
+  // Add more UIDs as needed
+  return "Unknown";
+}
+
+void setup() {
+  Serial.begin(115200);
+  SPI.begin();
+  rfid.PCD_Init();
+
+  WiFi.begin(ssid, password);
+  Serial.print("Connecting to WiFi...");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println(" connected!");
+
+  // Start NTP
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+}
+
+void loop() {
+  if (!rfid.PICC_IsNewCardPresent() || !rfid.PICC_ReadCardSerial()) return;
+
+  String uid = "";
+  for (byte i = 0; i < rfid.uid.size; i++) {
+    uid += String(rfid.uid.uidByte[i], HEX);
+  }
+  uid.toUpperCase();
+
+  String studentName = getStudentName(uid);
+  String timeStr = getFormattedTime();
+
+  Serial.println("Scanned: " + uid + " - " + studentName + " at " + timeStr);
+  sendToGoogleSheet(uid, studentName, timeStr);
+
+  rfid.PICC_HaltA();
+  rfid.PCD_StopCrypto1();
+
+  delay(2000);  // Prevent duplicate scans
+}
+
+String getFormattedTime() {
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) {
+    Serial.println("Failed to get time");
+    return "N/A";
+  }
+
+  char buffer[25];
+  strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", &timeinfo);
+  return String(buffer);
+}
+
+void sendToGoogleSheet(String uid, String name, String time) {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    http.begin(scriptUrl);
+    http.addHeader("Content-Type", "application/json");
+
+    String json = "{\"uid\":\"" + uid + "\",\"name\":\"" + name + "\",\"time\":\"" + time + "\"}";
+    int httpResponseCode = http.POST(json);
+
+    if (httpResponseCode > 0) {
+      Serial.println("Data sent successfully.");
+    } else {
+      Serial.printf("Error sending data: %d\n", httpResponseCode);
+    }
+
+    http.end();
+  } else {
+    Serial.println("WiFi not connected");
+  }
+}

@@ -1,0 +1,26 @@
+#include <SPI.h>
+#include <MFRC522.h>
+
+#define SS_PIN 21
+#define RST_PIN 22
+
+MFRC522 rfid(SS_PIN, RST_PIN);
+
+void setup() {
+  Serial.begin(115200);
+  SPI.begin();         // Init SPI bus
+  rfid.PCD_Init();     // Init MFRC522
+  Serial.println("Scan a card to get UID...");
+}
+
+void loop() {
+  if (!rfid.PICC_IsNewCardPresent() || !rfid.PICC_ReadCardSerial()) return;
+
+  Serial.print("UID: ");
+  for (byte i = 0; i < rfid.uid.size; i++) {
+    Serial.print(rfid.uid.uidByte[i], HEX);
+  }
+  Serial.println();
+
+  delay(2000); // Give time before scanning next
+}
